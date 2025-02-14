@@ -8,7 +8,6 @@
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
-#include <openssl/kdf.h>
 #include <openssl/rsa.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
@@ -48,6 +47,12 @@ using OPENSSL_SIZE_T = size_t;
 #else
 using OPENSSL_SIZE_T = int;
 #endif
+
+#ifdef OPENSSL_IS_BORINGSSL
+#ifdef NCRYPTO_BSSL_NEEDS_DH_PRIMES
+#include "dh-primes.h"
+#endif  // NCRYPTO_BSSL_NEEDS_DH_PRIMES
+#endif  // OPENSSL_IS_BORINGSSL
 
 namespace ncrypto {
 
