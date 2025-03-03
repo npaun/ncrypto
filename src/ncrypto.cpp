@@ -1343,7 +1343,7 @@ X509View X509View::From(const SSLCtxPointer& ctx) {
 }
 
 std::optional<std::string> X509View::getFingerprint(
-    const EVP_MD* method) const {
+    const Digest& method) const {
   unsigned int md_size;
   unsigned char md[EVP_MAX_MD_SIZE];
   static constexpr char hex[] = "0123456789ABCDEF";
@@ -1859,17 +1859,17 @@ const EVP_CIPHER* getCipherByName(const char* name) {
   return EVP_get_cipherbyname(name);
 }
 
-bool checkHkdfLength(const EVP_MD* md, size_t length) {
+bool checkHkdfLength(const Digest& md, size_t length) {
   // HKDF-Expand computes up to 255 HMAC blocks, each having as many bits as
   // the output of the hash function. 255 is a hard limit because HKDF appends
   // an 8-bit counter to each HMAC'd message, starting at 1.
   static constexpr size_t kMaxDigestMultiplier = 255;
-  size_t max_length = EVP_MD_size(md) * kMaxDigestMultiplier;
+  size_t max_length = md.size() * kMaxDigestMultiplier;
   if (length > max_length) return false;
   return true;
 }
 
-bool hkdfInfo(const EVP_MD* md,
+bool hkdfInfo(const Digest& md,
               const Buffer<const unsigned char>& key,
               const Buffer<const unsigned char>& info,
               const Buffer<const unsigned char>& salt,
@@ -1887,7 +1887,15 @@ bool hkdfInfo(const EVP_MD* md,
   if (salt.len > 0) {
     actual_salt = {reinterpret_cast<const char*>(salt.data), salt.len};
   } else {
-    actual_salt = {default_salt, static_cast<unsigned>(EVP_MD_size(md))};
+    actual_salt = {default_salt, static_cast<unsigned>(md.size())};
+  }
+
+#ifndef NCRYPTO_NO_KDF_H
+  auto ctx = EVPKeyCtxPointer::NewFromID(EVP_PKEY_HKDF);
+  if (!ctx || !EVP_PKEY_derive_init(ctx.get()) ||
+      !EVP_PKEY_CTX_set_hkdf_md(ctx.get(), md) ||
+      !EVP_PKEY_CTX_add1_hkdf_info(ctx.get(), info.data, info.len)) {
+    return false;
   }
 
 #ifndef NCRYPTO_NO_KDF_H
@@ -2003,7 +2011,7 @@ DataPointer scrypt(const Buffer<const char>& pass,
   return {};
 }
 
-bool pbkdf2Into(const EVP_MD* md,
+bool pbkdf2Into(const Digest& md,
                 const Buffer<const char>& pass,
                 const Buffer<const unsigned char>& salt,
                 uint32_t iterations,
@@ -2016,12 +2024,13 @@ bool pbkdf2Into(const EVP_MD* md,
     return false;
   }
 
+  const EVP_MD* md_ptr = md;
   if (PKCS5_PBKDF2_HMAC(pass.data,
                         pass.len,
                         salt.data,
                         salt.len,
                         iterations,
-                        md,
+                        md_ptr,
                         length,
                         out->data)) {
     return true;
@@ -3358,6 +3367,14 @@ bool Cipher::isSupportedAuthenticatedMode() const {
   }
 }
 
+int Cipher::bytesToKey(const Digest& digest,
+                       const Buffer<const unsigned char>& input,
+                       unsigned char* key,
+                       unsigned char* iv) const {
+  return EVP_BytesToKey(
+      *this, Digest::MD5, nullptr, input.data, input.len, 1, key, iv);
+}
+
 // ============================================================================
 
 CipherCtxPointer CipherCtxPointer::New() {
@@ -3391,9 +3408,9 @@ EVP_CIPHER_CTX* CipherCtxPointer::release() {
   return ctx_.release();
 }
 
-void CipherCtxPointer::setFlags(int flags) {
+void CipherCtxPointer::setAllowWrap() {
   if (!ctx_) return;
-  EVP_CIPHER_CTX_set_flags(ctx_.get(), flags);
+  EVP_CIPHER_CTX_set_flags(ctx_.get(), EVP_CIPHER_CTX_FLAG_WRAP_ALLOW);
 }
 
 bool CipherCtxPointer::setKeyLength(size_t length) {
@@ -3832,14 +3849,16 @@ bool EVPKeyCtxPointer::setEcParameters(int curve, int encoding) {
          EVP_PKEY_CTX_set_ec_param_enc(ctx_.get(), encoding) == 1;
 }
 
-bool EVPKeyCtxPointer::setRsaOaepMd(const EVP_MD* md) {
-  if (md == nullptr || !ctx_) return false;
-  return EVP_PKEY_CTX_set_rsa_oaep_md(ctx_.get(), md) > 0;
+bool EVPKeyCtxPointer::setRsaOaepMd(const Digest& md) {
+  if (!md || !ctx_) return false;
+  const EVP_MD* md_ptr = md;
+  return EVP_PKEY_CTX_set_rsa_oaep_md(ctx_.get(), md_ptr) > 0;
 }
 
-bool EVPKeyCtxPointer::setRsaMgf1Md(const EVP_MD* md) {
-  if (md == nullptr || !ctx_) return false;
-  return EVP_PKEY_CTX_set_rsa_mgf1_md(ctx_.get(), md) > 0;
+bool EVPKeyCtxPointer::setRsaMgf1Md(const Digest& md) {
+  if (!md || !ctx_) return false;
+  const EVP_MD* md_ptr = md;
+  return EVP_PKEY_CTX_set_rsa_mgf1_md(ctx_.get(), md_ptr) > 0;
 }
 
 bool EVPKeyCtxPointer::setRsaPadding(int padding) {
@@ -3874,14 +3893,17 @@ bool EVPKeyCtxPointer::setRsaKeygenPubExp(BignumPointer&& e) {
   return false;
 }
 
-bool EVPKeyCtxPointer::setRsaPssKeygenMd(const EVP_MD* md) {
-  if (md == nullptr || !ctx_) return false;
-  return EVP_PKEY_CTX_set_rsa_pss_keygen_md(ctx_.get(), md) > 0;
+bool EVPKeyCtxPointer::setRsaPssKeygenMd(const Digest& md) {
+  if (!md || !ctx_) return false;
+  // OpenSSL < 3 accepts a void* for the md parameter.
+  const EVP_MD* md_ptr = md;
+  return EVP_PKEY_CTX_set_rsa_pss_keygen_md(ctx_.get(), md_ptr) > 0;
 }
 
-bool EVPKeyCtxPointer::setRsaPssKeygenMgf1Md(const EVP_MD* md) {
-  if (md == nullptr || !ctx_) return false;
-  return EVP_PKEY_CTX_set_rsa_pss_keygen_mgf1_md(ctx_.get(), md) > 0;
+bool EVPKeyCtxPointer::setRsaPssKeygenMgf1Md(const Digest& md) {
+  if (!md || !ctx_) return false;
+  const EVP_MD* md_ptr = md;
+  return EVP_PKEY_CTX_set_rsa_pss_keygen_mgf1_md(ctx_.get(), md_ptr) > 0;
 }
 
 bool EVPKeyCtxPointer::setRsaPssSaltlen(int salt_len) {
@@ -4400,7 +4422,7 @@ EVP_MD_CTX* EVPMDCtxPointer::release() {
   return ctx_.release();
 }
 
-bool EVPMDCtxPointer::digestInit(const EVP_MD* digest) {
+bool EVPMDCtxPointer::digestInit(const Digest& digest) {
   if (!ctx_) return false;
   return EVP_DigestInit_ex(ctx_.get(), digest, nullptr) > 0;
 }
@@ -4466,7 +4488,7 @@ bool EVPMDCtxPointer::copyTo(const EVPMDCtxPointer& other) const {
 }
 
 std::optional<EVP_PKEY_CTX*> EVPMDCtxPointer::signInit(const EVPKeyPointer& key,
-                                                       const EVP_MD* digest) {
+                                                       const Digest& digest) {
   EVP_PKEY_CTX* ctx = nullptr;
   if (!EVP_DigestSignInit(ctx_.get(), &ctx, digest, nullptr, key.get())) {
     return std::nullopt;
@@ -4475,7 +4497,7 @@ std::optional<EVP_PKEY_CTX*> EVPMDCtxPointer::signInit(const EVPKeyPointer& key,
 }
 
 std::optional<EVP_PKEY_CTX*> EVPMDCtxPointer::verifyInit(
-    const EVPKeyPointer& key, const EVP_MD* digest) {
+    const EVPKeyPointer& key, const Digest& digest) {
   EVP_PKEY_CTX* ctx = nullptr;
   if (!EVP_DigestVerifyInit(ctx_.get(), &ctx, digest, nullptr, key.get())) {
     return std::nullopt;
@@ -4620,9 +4642,10 @@ HMAC_CTX* HMACCtxPointer::release() {
   return ctx_.release();
 }
 
-bool HMACCtxPointer::init(const Buffer<const void>& buf, const EVP_MD* md) {
+bool HMACCtxPointer::init(const Buffer<const void>& buf, const Digest& md) {
   if (!ctx_) return false;
-  return HMAC_Init_ex(ctx_.get(), buf.data, buf.len, md, nullptr) == 1;
+  const EVP_MD* md_ptr = md;
+  return HMAC_Init_ex(ctx_.get(), buf.data, buf.len, md_ptr, nullptr) == 1;
 }
 
 bool HMACCtxPointer::update(const Buffer<const void>& buf) {

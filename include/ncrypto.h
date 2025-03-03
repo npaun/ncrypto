@@ -338,7 +338,20 @@ class Cipher final {
   std::string_view getModeLabel() const;
   const char* getName() const;
 
+  bool isGcmMode() const;
+  bool isWrapMode() const;
+  bool isCtrMode() const;
+  bool isCcmMode() const;
+  bool isOcbMode() const;
+  bool isStreamMode() const;
+  bool isChaCha20Poly1305() const;
+
   bool isSupportedAuthenticatedMode() const;
+
+  int bytesToKey(const Digest& digest,
+                 const Buffer<const unsigned char>& input,
+                 unsigned char* key,
+                 unsigned char* iv) const;
 
   static const Cipher FromName(const char* name);
   static const Cipher FromNid(int nid);
@@ -375,7 +388,7 @@ class Cipher final {
 
   struct CipherParams {
     int padding;
-    const EVP_MD* digest;
+    Digest digest;
     const Buffer<const void> label;
   };
 
@@ -728,7 +741,8 @@ class CipherCtxPointer final {
   void reset(EVP_CIPHER_CTX* ctx = nullptr);
   EVP_CIPHER_CTX* release();
 
-  void setFlags(int flags);
+  void setAllowWrap();
+
   bool setKeyLength(size_t length);
   bool setIvLength(size_t length);
   bool setAeadTag(const Buffer<const char>& tag);
@@ -784,13 +798,13 @@ class EVPKeyCtxPointer final {
   bool setDsaParameters(uint32_t bits, std::optional<int> q_bits);
   bool setEcParameters(int curve, int encoding);
 
-  bool setRsaOaepMd(const EVP_MD* md);
-  bool setRsaMgf1Md(const EVP_MD* md);
+  bool setRsaOaepMd(const Digest& md);
+  bool setRsaMgf1Md(const Digest& md);
   bool setRsaPadding(int padding);
   bool setRsaKeygenPubExp(BignumPointer&& e);
   bool setRsaKeygenBits(int bits);
-  bool setRsaPssKeygenMd(const EVP_MD* md);
-  bool setRsaPssKeygenMgf1Md(const EVP_MD* md);
+  bool setRsaPssKeygenMd(const Digest& md);
+  bool setRsaPssKeygenMgf1Md(const Digest& md);
   bool setRsaPssSaltlen(int salt_len);
   bool setRsaImplicitRejection();
   bool setRsaOaepLabel(DataPointer&& data);
@@ -1207,7 +1221,7 @@ class X509View final {
   bool checkPrivateKey(const EVPKeyPointer& pkey) const;
   bool checkPublicKey(const EVPKeyPointer& pkey) const;
 
-  std::optional<std::string> getFingerprint(const EVP_MD* method) const;
+  std::optional<std::string> getFingerprint(const Digest& method) const;
 
   X509Pointer clone() const;
 
@@ -1403,16 +1417,25 @@ class EVPMDCtxPointer final {
   void reset(EVP_MD_CTX* ctx = nullptr);
   EVP_MD_CTX* release();
 
-  bool digestInit(const EVP_MD* digest);
+  bool digestInit(const Digest& digest);
   bool digestUpdate(const Buffer<const void>& in);
   DataPointer digestFinal(size_t length);
   bool digestFinalInto(Buffer<void>* buf);
   size_t getExpectedSize();
 
   std::optional<EVP_PKEY_CTX*> signInit(const EVPKeyPointer& key,
-                                        const EVP_MD* digest);
+                                        const Digest& digest);
   std::optional<EVP_PKEY_CTX*> verifyInit(const EVPKeyPointer& key,
-                                          const EVP_MD* digest);
+                                          const Digest& digest);
+
+  std::optional<EVP_PKEY_CTX*> signInitWithContext(
+      const EVPKeyPointer& key,
+      const Digest& digest,
+      const Buffer<const unsigned char>& context_string);
+  std::optional<EVP_PKEY_CTX*> verifyInitWithContext(
+      const EVPKeyPointer& key,
+      const Digest& digest,
+      const Buffer<const unsigned char>& context_string);
 
   std::optional<EVP_PKEY_CTX*> signInitWithContext(
       const EVPKeyPointer& key,
@@ -1456,7 +1479,7 @@ class HMACCtxPointer final {
   void reset(HMAC_CTX* ctx = nullptr);
   HMAC_CTX* release();
 
-  bool init(const Buffer<const void>& buf, const EVP_MD* md);
+  bool init(const Buffer<const void>& buf, const Digest& md);
   bool update(const Buffer<const void>& buf);
   DataPointer digest();
   bool digestInto(Buffer<void>* buf);
@@ -1607,7 +1630,7 @@ const EVP_CIPHER* getCipherByName(const char* name);
 // Verify that the specified HKDF output length is valid for the given digest.
 // The maximum length for HKDF output for a given digest is 255 times the
 // hash size for the given digest algorithm.
-bool checkHkdfLength(const EVP_MD* md, size_t length);
+bool checkHkdfLength(const Digest& digest, size_t length);
 
 bool extractP1363(const Buffer<const unsigned char>& buf,
                   unsigned char* dest,
@@ -1620,7 +1643,7 @@ bool hkdfInfo(const EVP_MD* md,
               size_t length,
               Buffer<unsigned char>* out);
 
-DataPointer hkdf(const EVP_MD* md,
+DataPointer hkdf(const Digest& md,
                  const Buffer<const unsigned char>& key,
                  const Buffer<const unsigned char>& info,
                  const Buffer<const unsigned char>& salt,
@@ -1652,7 +1675,7 @@ bool pbkdf2Into(const EVP_MD* md,
                 size_t length,
                 Buffer<unsigned char>* out);
 
-DataPointer pbkdf2(const EVP_MD* md,
+DataPointer pbkdf2(const Digest& md,
                    const Buffer<const char>& pass,
                    const Buffer<const unsigned char>& salt,
                    uint32_t iterations,
