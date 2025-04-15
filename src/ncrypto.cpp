@@ -1419,7 +1419,7 @@ X509Pointer X509Pointer::PeerFrom(const SSLPointer& ssl) {
 // When adding or removing errors below, please also update the list in the API
 // documentation. See the "OpenSSL Error Codes" section of doc/api/errors.md
 // Also *please* update the respective section in doc/api/tls.md as well
-std::string_view X509Pointer::ErrorCode(int32_t err) {  // NOLINT(runtime/int)
+const char* X509Pointer::ErrorCode(int32_t err) {  // NOLINT(runtime/int)
 #define CASE(CODE)                                                             \
   case X509_V_ERR_##CODE:                                                      \
     return #CODE;
@@ -1457,7 +1457,7 @@ std::string_view X509Pointer::ErrorCode(int32_t err) {  // NOLINT(runtime/int)
   return "UNSPECIFIED";
 }
 
-std::optional<std::string_view> X509Pointer::ErrorReason(int32_t err) {
+std::optional<const char*> X509Pointer::ErrorReason(int32_t err) {
   if (err == X509_V_OK) return std::nullopt;
   return X509_verify_cert_error_string(err);
 }
@@ -1513,9 +1513,8 @@ BIOPointer BIOPointer::New(const void* data, size_t len) {
   return BIOPointer(BIO_new_mem_buf(data, len));
 }
 
-BIOPointer BIOPointer::NewFile(std::string_view filename,
-                               std::string_view mode) {
-  return BIOPointer(BIO_new_file(filename.data(), mode.data()));
+BIOPointer BIOPointer::NewFile(const char* filename, const char* mode) {
+  return BIOPointer(BIO_new_file(filename, mode));
 }
 
 BIOPointer BIOPointer::NewFp(FILE* fd, int close_flag) {
@@ -1797,17 +1796,17 @@ DataPointer DHPointer::stateless(const EVPKeyPointer& ourKey,
 // ============================================================================
 // KDF
 
-const EVP_MD* getDigestByName(const std::string_view name) {
+const EVP_MD* getDigestByName(const char* name) {
   // Historically, "dss1" and "DSS1" were DSA aliases for SHA-1
   // exposed through the public API.
-  if (name == "dss1" || name == "DSS1") [[unlikely]] {
+  if (strcmp(name, "dss1") == 0 || strcmp(name, "DSS1") == 0) [[unlikely]] {
     return EVP_sha1();
   }
-  return EVP_get_digestbyname(name.data());
+  return EVP_get_digestbyname(name);
 }
 
-const EVP_CIPHER* getCipherByName(const std::string_view name) {
-  return EVP_get_cipherbyname(name.data());
+const EVP_CIPHER* getCipherByName(const char* name) {
+  return EVP_get_cipherbyname(name);
 }
 
 bool checkHkdfLength(const EVP_MD* md, size_t length) {
@@ -2920,8 +2919,7 @@ SSLPointer SSLPointer::New(const SSLCtxPointer& ctx) {
   return SSLPointer(SSL_new(ctx.get()));
 }
 
-void SSLPointer::getCiphers(
-    std::function<void(const std::string_view)> cb) const {
+void SSLPointer::getCiphers(std::function<void(const char*)> cb) const {
   if (!ssl_) return;
   STACK_OF(SSL_CIPHER)* ciphers = SSL_get_ciphers(get());
 
@@ -2986,7 +2984,7 @@ std::optional<uint32_t> SSLPointer::verifyPeerCertificate() const {
   return std::nullopt;
 }
 
-const std::string_view SSLPointer::getClientHelloAlpn() const {
+const char* SSLPointer::getClientHelloAlpn() const {
   if (ssl_ == nullptr) return {};
 #ifndef OPENSSL_IS_BORINGSSL
   const unsigned char* buf;
@@ -3011,7 +3009,7 @@ const std::string_view SSLPointer::getClientHelloAlpn() const {
 #endif
 }
 
-const std::string_view SSLPointer::getClientHelloServerName() const {
+const char* SSLPointer::getClientHelloServerName() const {
   if (ssl_ == nullptr) return {};
 #ifndef OPENSSL_IS_BORINGSSL
   const unsigned char* buf;
@@ -3154,6 +3152,12 @@ SSLCtxPointer SSLCtxPointer::New(const SSL_METHOD* method) {
 bool SSLCtxPointer::setGroups(const char* groups) {
 #ifndef NCRYPTO_NO_SSL_GROUP_LIST
   return SSL_CTX_set1_groups_list(get(), groups) == 1;
+}
+
+bool SSLCtxPointer::setCipherSuites(const char* ciphers) {
+#ifndef OPENSSL_IS_BORINGSSL
+  if (!ctx_) return false;
+  return SSL_CTX_set_ciphersuites(ctx_.get(), ciphers);
 #else
   // Older versions of openssl/boringssl do not implement the
   // SSL_CTX_set1_groups_list API
@@ -3163,8 +3167,8 @@ bool SSLCtxPointer::setGroups(const char* groups) {
 
 // ============================================================================
 
-const Cipher Cipher::FromName(std::string_view name) {
-  return Cipher(EVP_get_cipherbyname(name.data()));
+const Cipher Cipher::FromName(const char* name) {
+  return Cipher(EVP_get_cipherbyname(name));
 }
 
 const Cipher Cipher::FromNid(int nid) {
@@ -3282,7 +3286,7 @@ std::string_view Cipher::getModeLabel() const {
   return "{unknown}";
 }
 
-std::string_view Cipher::getName() const {
+const char* Cipher::getName() const {
   if (!cipher_) return {};
   // OBJ_nid2sn(EVP_CIPHER_nid(cipher)) is used here instead of
   // EVP_CIPHER_name(cipher) for compatibility with BoringSSL.
@@ -4193,6 +4197,74 @@ DataPointer Cipher::recover(const EVPKeyPointer& key,
       key, params, in);
 }
 
+namespace {
+struct CipherCallbackContext {
+  Cipher::CipherNameCallback cb;
+  void operator()(const char* name) { cb(name); }
+};
+
+#if OPENSSL_VERSION_MAJOR >= 3
+template <class TypeName,
+          TypeName* fetch_type(OSSL_LIB_CTX*, const char*, const char*),
+          void free_type(TypeName*),
+          const TypeName* getbyname(const char*),
+          const char* getname(const TypeName*)>
+void array_push_back(const TypeName* evp_ref,
+                     const char* from,
+                     const char* to,
+                     void* arg) {
+  if (from == nullptr) return;
+
+  const TypeName* real_instance = getbyname(from);
+  if (!real_instance) return;
+
+  const char* real_name = getname(real_instance);
+  if (!real_name) return;
+
+  // EVP_*_fetch() does not support alias names, so we need to pass it the
+  // real/original algorithm name.
+  // We use EVP_*_fetch() as a filter here because it will only return an
+  // instance if the algorithm is supported by the public OpenSSL APIs (some
+  // algorithms are used internally by OpenSSL and are also passed to this
+  // callback).
+  TypeName* fetched = fetch_type(nullptr, real_name, nullptr);
+  if (fetched == nullptr) return;
+
+  free_type(fetched);
+  auto& cb = *(static_cast<CipherCallbackContext*>(arg));
+  cb(from);
+}
+#else
+template <class TypeName>
+void array_push_back(const TypeName* evp_ref,
+                     const char* from,
+                     const char* to,
+                     void* arg) {
+  if (!from) return;
+  auto& cb = *(static_cast<CipherCallbackContext*>(arg));
+  cb(from);
+}
+#endif
+}  // namespace
+
+void Cipher::ForEach(Cipher::CipherNameCallback callback) {
+  ClearErrorOnReturn clearErrorOnReturn;
+  CipherCallbackContext context;
+  context.cb = std::move(callback);
+
+  EVP_CIPHER_do_all_sorted(
+#if OPENSSL_VERSION_MAJOR >= 3
+      array_push_back<EVP_CIPHER,
+                      EVP_CIPHER_fetch,
+                      EVP_CIPHER_free,
+                      EVP_get_cipherbyname,
+                      EVP_CIPHER_get0_name>,
+#else
+      array_push_back<EVP_CIPHER>,
+#endif
+      &context);
+}
+
 // ============================================================================
 
 Ec::Ec() : ec_(nullptr) {}
@@ -4214,6 +4286,24 @@ int Ec::getCurve() const {
   return EC_GROUP_get_curve_name(getGroup());
 }
 
+int Ec::GetCurveIdFromName(const char* name) {
+  int nid = EC_curve_nist2nid(name);
+  if (nid == NID_undef) {
+    nid = OBJ_sn2nid(name);
+  }
+  return nid;
+}
+
+bool Ec::GetCurves(Ec::GetCurveCallback callback) {
+  const size_t count = EC_get_builtin_curves(nullptr, 0);
+  std::vector<EC_builtin_curve> curves(count);
+  if (EC_get_builtin_curves(curves.data(), count) != count) {
+    return false;
+  }
+  for (auto curve : curves) {
+    if (!callback(OBJ_nid2sn(curve.nid))) return false;
+  }
+  return true;
 uint32_t Ec::getDegree() const {
   return EC_GROUP_get_degree(getGroup());
 }
