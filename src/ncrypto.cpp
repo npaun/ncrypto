@@ -3096,6 +3096,22 @@ std::optional<std::string_view> SSLPointer::getCipherVersion() const {
   return SSL_CIPHER_get_version(cipher);
 }
 
+std::optional<int> SSLPointer::getSecurityLevel() {
+#ifndef OPENSSL_IS_BORINGSSL
+  auto ctx = SSLCtxPointer::New();
+  if (!ctx) return std::nullopt;
+
+  auto ssl = SSLPointer::New(ctx);
+  if (!ssl) return std::nullopt;
+
+  return SSL_get_security_level(ssl);
+#else
+  // OPENSSL_TLS_SECURITY_LEVEL is not defined in BoringSSL
+  // so assume it is the default OPENSSL_TLS_SECURITY_LEVEL value.
+  return 1;
+#endif  // OPENSSL_IS_BORINGSSL
+}
+
 SSLCtxPointer::SSLCtxPointer(SSL_CTX* ctx) : ctx_(ctx) {}
 
 SSLCtxPointer::SSLCtxPointer(SSLCtxPointer&& other) noexcept
