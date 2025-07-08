@@ -264,8 +264,44 @@ struct Buffer {
   size_t len = 0;
 };
 
+class Digest final {
+ public:
+  static constexpr size_t MAX_SIZE = EVP_MAX_MD_SIZE;
+  Digest() = default;
+  Digest(const EVP_MD* md) : md_(md) {}
+  Digest(const Digest&) = default;
+  Digest& operator=(const Digest&) = default;
+  inline Digest& operator=(const EVP_MD* md) {
+    md_ = md;
+    return *this;
+  }
+  NCRYPTO_DISALLOW_MOVE(Digest)
+
+  size_t size() const;
+
+  inline const EVP_MD* get() const { return md_; }
+  inline operator const EVP_MD*() const { return md_; }
+  inline operator bool() const { return md_ != nullptr; }
+
+  static const Digest MD5;
+  static const Digest SHA1;
+  static const Digest SHA256;
+  static const Digest SHA384;
+  static const Digest SHA512;
+
+  static const Digest FromName(const char* name);
+
+ private:
+  const EVP_MD* md_ = nullptr;
+};
+
+// Computes a fixed-length digest.
 DataPointer hashDigest(const Buffer<const unsigned char>& data,
                        const EVP_MD* md);
+// Computes a variable-length digest for XOF algorithms (e.g. SHAKE128).
+DataPointer xofHashDigest(const Buffer<const unsigned char>& data,
+                          const EVP_MD* md,
+                          size_t length);
 
 class Cipher final {
  public:
