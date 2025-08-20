@@ -4727,6 +4727,145 @@ size_t Dsa::getDivisorLength() const {
 }
 }  // namespace ncrypto
 
+// ============================================================================
+
+size_t Digest::size() const {
+  if (md_ == nullptr) return 0;
+  return EVP_MD_size(md_);
+}
+
+const Digest Digest::MD5 = Digest(EVP_md5());
+const Digest Digest::SHA1 = Digest(EVP_sha1());
+const Digest Digest::SHA256 = Digest(EVP_sha256());
+const Digest Digest::SHA384 = Digest(EVP_sha384());
+const Digest Digest::SHA512 = Digest(EVP_sha512());
+
+const Digest Digest::FromName(const char* name) {
+  return ncrypto::getDigestByName(name);
+}
+
+// ============================================================================
+// KEM Implementation
+#if OPENSSL_VERSION_MAJOR >= 3
+#if !OPENSSL_VERSION_PREREQ(3, 5)
+bool KEM::SetOperationParameter(EVP_PKEY_CTX* ctx, const EVPKeyPointer& key) {
+  const char* operation = nullptr;
+
+  switch (EVP_PKEY_id(key.get())) {
+    case EVP_PKEY_RSA:
+      operation = OSSL_KEM_PARAM_OPERATION_RSASVE;
+      break;
+#if OPENSSL_VERSION_PREREQ(3, 2)
+    case EVP_PKEY_EC:
+    case EVP_PKEY_X25519:
+    case EVP_PKEY_X448:
+      operation = OSSL_KEM_PARAM_OPERATION_DHKEM;
+      break;
+#endif
+    default:
+      unreachable();
+  }
+
+  if (operation != nullptr) {
+    OSSL_PARAM params[] = {
+        OSSL_PARAM_utf8_string(
+            OSSL_KEM_PARAM_OPERATION, const_cast<char*>(operation), 0),
+        OSSL_PARAM_END};
+
+    if (EVP_PKEY_CTX_set_params(ctx, params) <= 0) {
+      return false;
+    }
+  }
+
+  return true;
+}
+#endif
+
+std::optional<KEM::EncapsulateResult> KEM::Encapsulate(
+    const EVPKeyPointer& public_key) {
+  ClearErrorOnReturn clear_error_on_return;
+
+  auto ctx = public_key.newCtx();
+  if (!ctx) return std::nullopt;
+
+  if (EVP_PKEY_encapsulate_init(ctx.get(), nullptr) <= 0) {
+    return std::nullopt;
+  }
+
+#if !OPENSSL_VERSION_PREREQ(3, 5)
+  if (!SetOperationParameter(ctx.get(), public_key)) {
+    return std::nullopt;
+  }
+#endif
+
+  // Determine output buffer sizes
+  size_t ciphertext_len = 0;
+  size_t shared_key_len = 0;
+
+  if (EVP_PKEY_encapsulate(
+          ctx.get(), nullptr, &ciphertext_len, nullptr, &shared_key_len) <= 0) {
+    return std::nullopt;
+  }
+
+  auto ciphertext = DataPointer::Alloc(ciphertext_len);
+  auto shared_key = DataPointer::Alloc(shared_key_len);
+  if (!ciphertext || !shared_key) return std::nullopt;
+
+  if (EVP_PKEY_encapsulate(ctx.get(),
+                           static_cast<unsigned char*>(ciphertext.get()),
+                           &ciphertext_len,
+                           static_cast<unsigned char*>(shared_key.get()),
+                           &shared_key_len) <= 0) {
+    return std::nullopt;
+  }
+
+  return EncapsulateResult(std::move(ciphertext), std::move(shared_key));
+}
+
+DataPointer KEM::Decapsulate(const EVPKeyPointer& private_key,
+                             const Buffer<const void>& ciphertext) {
+  ClearErrorOnReturn clear_error_on_return;
+
+  auto ctx = private_key.newCtx();
+  if (!ctx) return {};
+
+  if (EVP_PKEY_decapsulate_init(ctx.get(), nullptr) <= 0) {
+    return {};
+  }
+
+#if !OPENSSL_VERSION_PREREQ(3, 5)
+  if (!SetOperationParameter(ctx.get(), private_key)) {
+    return {};
+  }
+#endif
+
+  // First pass: determine shared secret size
+  size_t shared_key_len = 0;
+  if (EVP_PKEY_decapsulate(ctx.get(),
+                           nullptr,
+                           &shared_key_len,
+                           static_cast<const unsigned char*>(ciphertext.data),
+                           ciphertext.len) <= 0) {
+    return {};
+  }
+
+  auto shared_key = DataPointer::Alloc(shared_key_len);
+  if (!shared_key) return {};
+
+  if (EVP_PKEY_decapsulate(ctx.get(),
+                           static_cast<unsigned char*>(shared_key.get()),
+                           &shared_key_len,
+                           static_cast<const unsigned char*>(ciphertext.data),
+                           ciphertext.len) <= 0) {
+    return {};
+  }
+
+  return shared_key;
+}
+
+#endif  // OPENSSL_VERSION_MAJOR >= 3
+
+}  // namespace ncrypto
 // ===========================================================================
 #ifdef NCRYPTO_BSSL_NEEDS_DH_PRIMES
 // While newer versions of BoringSSL have these primes, older versions do not,
