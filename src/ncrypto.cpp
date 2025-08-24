@@ -3159,6 +3159,59 @@ const Cipher Cipher::FromCtx(const CipherCtxPointer& ctx) {
   return Cipher(EVP_CIPHER_CTX_cipher(ctx.get()));
 }
 
+const Cipher Cipher::EMPTY = Cipher();
+const Cipher Cipher::AES_128_CBC = Cipher::FromNid(NID_aes_128_cbc);
+const Cipher Cipher::AES_192_CBC = Cipher::FromNid(NID_aes_192_cbc);
+const Cipher Cipher::AES_256_CBC = Cipher::FromNid(NID_aes_256_cbc);
+const Cipher Cipher::AES_128_CTR = Cipher::FromNid(NID_aes_128_ctr);
+const Cipher Cipher::AES_192_CTR = Cipher::FromNid(NID_aes_192_ctr);
+const Cipher Cipher::AES_256_CTR = Cipher::FromNid(NID_aes_256_ctr);
+const Cipher Cipher::AES_128_GCM = Cipher::FromNid(NID_aes_128_gcm);
+const Cipher Cipher::AES_192_GCM = Cipher::FromNid(NID_aes_192_gcm);
+const Cipher Cipher::AES_256_GCM = Cipher::FromNid(NID_aes_256_gcm);
+const Cipher Cipher::AES_128_KW = Cipher::FromNid(NID_id_aes128_wrap);
+const Cipher Cipher::AES_192_KW = Cipher::FromNid(NID_id_aes192_wrap);
+const Cipher Cipher::AES_256_KW = Cipher::FromNid(NID_id_aes256_wrap);
+const Cipher Cipher::AES_128_OCB = Cipher::FromNid(NID_aes_128_ocb);
+const Cipher Cipher::AES_192_OCB = Cipher::FromNid(NID_aes_192_ocb);
+const Cipher Cipher::AES_256_OCB = Cipher::FromNid(NID_aes_256_ocb);
+const Cipher Cipher::CHACHA20_POLY1305 = Cipher::FromNid(NID_chacha20_poly1305);
+
+bool Cipher::isGcmMode() const {
+  if (!cipher_) return false;
+  return getMode() == EVP_CIPH_GCM_MODE;
+}
+
+bool Cipher::isWrapMode() const {
+  if (!cipher_) return false;
+  return getMode() == EVP_CIPH_WRAP_MODE;
+}
+
+bool Cipher::isCtrMode() const {
+  if (!cipher_) return false;
+  return getMode() == EVP_CIPH_CTR_MODE;
+}
+
+bool Cipher::isCcmMode() const {
+  if (!cipher_) return false;
+  return getMode() == EVP_CIPH_CCM_MODE;
+}
+
+bool Cipher::isOcbMode() const {
+  if (!cipher_) return false;
+  return getMode() == EVP_CIPH_OCB_MODE;
+}
+
+bool Cipher::isStreamMode() const {
+  if (!cipher_) return false;
+  return getMode() == EVP_CIPH_STREAM_CIPHER;
+}
+
+bool Cipher::isChaCha20Poly1305() const {
+  if (!cipher_) return false;
+  return getNid() == NID_chacha20_poly1305;
+}
+
 int Cipher::getMode() const {
   if (!cipher_) return 0;
   return EVP_CIPHER_mode(cipher_);
@@ -3309,6 +3362,31 @@ int CipherCtxPointer::getBlockSize() const {
 int CipherCtxPointer::getMode() const {
   if (!ctx_) return 0;
   return EVP_CIPHER_CTX_mode(ctx_.get());
+}
+
+bool CipherCtxPointer::isGcmMode() const {
+  if (!ctx_) return false;
+  return getMode() == EVP_CIPH_GCM_MODE;
+}
+
+bool CipherCtxPointer::isOcbMode() const {
+  if (!ctx_) return false;
+  return getMode() == EVP_CIPH_OCB_MODE;
+}
+
+bool CipherCtxPointer::isCcmMode() const {
+  if (!ctx_) return false;
+  return getMode() == EVP_CIPH_CCM_MODE;
+}
+
+bool CipherCtxPointer::isWrapMode() const {
+  if (!ctx_) return false;
+  return getMode() == EVP_CIPH_WRAP_MODE;
+}
+
+bool CipherCtxPointer::isChaCha20Poly1305() const {
+  if (!ctx_) return false;
+  return getNid() == NID_chacha20_poly1305;
 }
 
 int CipherCtxPointer::getNid() const {
