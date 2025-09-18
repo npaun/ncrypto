@@ -14,7 +14,9 @@ EnginePointer::EnginePointer(EnginePointer&& other) noexcept
   other.release();
 }
 
-EnginePointer::~EnginePointer() { reset(); }
+EnginePointer::~EnginePointer() {
+  reset();
+}
 
 EnginePointer& EnginePointer::operator=(EnginePointer&& other) noexcept {
   if (this == &other) return *this;
