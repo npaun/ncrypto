@@ -61,14 +61,14 @@ namespace ncrypto {
 
 #if NCRYPTO_DEVELOPMENT_CHECKS
 #define NCRYPTO_STR(x) #x
-#define NCRYPTO_REQUIRE(EXPR) \
-  {                           \
+#define NCRYPTO_REQUIRE(EXPR)                                                  \
+  {                                                                            \
     if (!(EXPR) { abort(); }) }
 
-#define NCRYPTO_FAIL(MESSAGE)                        \
-  do {                                               \
-    std::cerr << "FAIL: " << (MESSAGE) << std::endl; \
-    abort();                                         \
+#define NCRYPTO_FAIL(MESSAGE)                                                  \
+  do {                                                                         \
+    std::cerr << "FAIL: " << (MESSAGE) << std::endl;                           \
+    abort();                                                                   \
   } while (0);
 #define NCRYPTO_ASSERT_EQUAL(LHS, RHS, MESSAGE)                                \
   do {                                                                         \
@@ -77,13 +77,13 @@ namespace ncrypto {
       NCRYPTO_FAIL(MESSAGE);                                                   \
     }                                                                          \
   } while (0);
-#define NCRYPTO_ASSERT_TRUE(COND)                                           \
-  do {                                                                      \
-    if (!(COND)) {                                                          \
-      std::cerr << "Assert at line " << __LINE__ << " of file " << __FILE__ \
-                << std::endl;                                               \
-      NCRYPTO_FAIL(NCRYPTO_STR(COND));                                      \
-    }                                                                       \
+#define NCRYPTO_ASSERT_TRUE(COND)                                              \
+  do {                                                                         \
+    if (!(COND)) {                                                             \
+      std::cerr << "Assert at line " << __LINE__ << " of file " << __FILE__    \
+                << std::endl;                                                  \
+      NCRYPTO_FAIL(NCRYPTO_STR(COND));                                         \
+    }                                                                          \
   } while (0);
 #else
 #define NCRYPTO_FAIL(MESSAGE)
@@ -91,17 +91,17 @@ namespace ncrypto {
 #define NCRYPTO_ASSERT_TRUE(COND)
 #endif
 
-#define NCRYPTO_DISALLOW_COPY(Name) \
-  Name(const Name&) = delete;       \
+#define NCRYPTO_DISALLOW_COPY(Name)                                            \
+  Name(const Name&) = delete;                                                  \
   Name& operator=(const Name&) = delete;
-#define NCRYPTO_DISALLOW_MOVE(Name) \
-  Name(Name&&) = delete;            \
+#define NCRYPTO_DISALLOW_MOVE(Name)                                            \
+  Name(Name&&) = delete;                                                       \
   Name& operator=(Name&&) = delete;
-#define NCRYPTO_DISALLOW_COPY_AND_MOVE(Name) \
-  NCRYPTO_DISALLOW_COPY(Name)                \
+#define NCRYPTO_DISALLOW_COPY_AND_MOVE(Name)                                   \
+  NCRYPTO_DISALLOW_COPY(Name)                                                  \
   NCRYPTO_DISALLOW_MOVE(Name)
-#define NCRYPTO_DISALLOW_NEW_DELETE()  \
-  void* operator new(size_t) = delete; \
+#define NCRYPTO_DISALLOW_NEW_DELETE()                                          \
+  void* operator new(size_t) = delete;                                         \
   void operator delete(void*) = delete;
 
 [[noreturn]] inline void unreachable() {
@@ -299,7 +299,8 @@ class Cipher final {
                              const CipherParams& params,
                              const Buffer<const void> in);
 
-  static DataPointer sign(const EVPKeyPointer& key, const CipherParams& params,
+  static DataPointer sign(const EVPKeyPointer& key,
+                          const CipherParams& params,
                           const Buffer<const void> in);
 
   static DataPointer recover(const EVPKeyPointer& key,
@@ -392,7 +393,8 @@ class BignumPointer final {
 
   static DataPointer Encode(const BIGNUM* bn);
   static DataPointer EncodePadded(const BIGNUM* bn, size_t size);
-  static size_t EncodePaddedInto(const BIGNUM* bn, unsigned char* out,
+  static size_t EncodePaddedInto(const BIGNUM* bn,
+                                 unsigned char* out,
                                  size_t size);
   static int GetBitCount(const BIGNUM* bn);
   static int GetByteCount(const BIGNUM* bn);
@@ -439,8 +441,11 @@ class Rsa final {
   const std::optional<PssParams> getPssParams() const;
 
   bool setPublicKey(BignumPointer&& n, BignumPointer&& e);
-  bool setPrivateKey(BignumPointer&& d, BignumPointer&& q, BignumPointer&& p,
-                     BignumPointer&& dp, BignumPointer&& dq,
+  bool setPrivateKey(BignumPointer&& d,
+                     BignumPointer&& q,
+                     BignumPointer&& p,
+                     BignumPointer&& dp,
+                     BignumPointer&& dq,
                      BignumPointer&& qi);
 
   using CipherParams = Cipher::CipherParams;
@@ -613,7 +618,8 @@ class CipherCtxPointer final {
   bool setAeadTag(const Buffer<const char>& tag);
   bool setAeadTagLength(size_t length);
   bool setPadding(bool padding);
-  bool init(const Cipher& cipher, bool encrypt,
+  bool init(const Cipher& cipher,
+            bool encrypt,
             const unsigned char* key = nullptr,
             const unsigned char* iv = nullptr);
 
@@ -621,8 +627,10 @@ class CipherCtxPointer final {
   int getMode() const;
   int getNid() const;
 
-  bool update(const Buffer<const unsigned char>& in, unsigned char* out,
-              int* out_len, bool finalize = false);
+  bool update(const Buffer<const unsigned char>& in,
+              unsigned char* out,
+              int* out_len,
+              bool finalize = false);
   bool getAeadTag(size_t len, unsigned char* out);
 
  private:
@@ -678,7 +686,8 @@ class EVPKeyCtxPointer final {
 
   static constexpr int kDefaultRsaExponent = 0x10001;
 
-  static bool setRsaPadding(EVP_PKEY_CTX* ctx, int padding,
+  static bool setRsaPadding(EVP_PKEY_CTX* ctx,
+                            int padding,
                             std::optional<int> salt_len = std::nullopt);
 
   EVPKeyPointer paramgen() const;
@@ -731,7 +740,8 @@ class EVPKeyPointer final {
     PKFormatType format = PKFormatType::DER;
     PKEncodingType type = PKEncodingType::PKCS8;
     AsymmetricKeyEncodingConfig() = default;
-    AsymmetricKeyEncodingConfig(bool output_key_object, PKFormatType format,
+    AsymmetricKeyEncodingConfig(bool output_key_object,
+                                PKFormatType format,
                                 PKEncodingType type);
     AsymmetricKeyEncodingConfig(const AsymmetricKeyEncodingConfig&) = default;
     AsymmetricKeyEncodingConfig& operator=(const AsymmetricKeyEncodingConfig&) =
@@ -743,7 +753,8 @@ class EVPKeyPointer final {
     const EVP_CIPHER* cipher = nullptr;
     std::optional<DataPointer> passphrase = std::nullopt;
     PrivateKeyEncodingConfig() = default;
-    PrivateKeyEncodingConfig(bool output_key_object, PKFormatType format,
+    PrivateKeyEncodingConfig(bool output_key_object,
+                             PKFormatType format,
                              PKEncodingType type)
         : AsymmetricKeyEncodingConfig(output_key_object, format, type) {}
     PrivateKeyEncodingConfig(const PrivateKeyEncodingConfig&);
@@ -1072,7 +1083,8 @@ class X509View final {
     INVALID_NAME,
     OPERATION_FAILED,
   };
-  CheckMatch checkHost(const std::string_view host, int flags,
+  CheckMatch checkHost(const std::string_view host,
+                       int flags,
                        DataPointer* peerName = nullptr) const;
   CheckMatch checkEmail(const std::string_view email, int flags) const;
   CheckMatch checkIp(const std::string_view ip, int flags) const;
@@ -1404,35 +1416,53 @@ const EVP_CIPHER* getCipherByName(const std::string_view name);
 // hash size for the given digest algorithm.
 bool checkHkdfLength(const EVP_MD* md, size_t length);
 
-bool extractP1363(const Buffer<const unsigned char>& buf, unsigned char* dest,
+bool extractP1363(const Buffer<const unsigned char>& buf,
+                  unsigned char* dest,
                   size_t n);
 
-bool hkdfInfo(const EVP_MD* md, const Buffer<const unsigned char>& key,
+bool hkdfInfo(const EVP_MD* md,
+              const Buffer<const unsigned char>& key,
               const Buffer<const unsigned char>& info,
-              const Buffer<const unsigned char>& salt, size_t length,
+              const Buffer<const unsigned char>& salt,
+              size_t length,
               Buffer<unsigned char>* out);
 
-DataPointer hkdf(const EVP_MD* md, const Buffer<const unsigned char>& key,
+DataPointer hkdf(const EVP_MD* md,
+                 const Buffer<const unsigned char>& key,
                  const Buffer<const unsigned char>& info,
-                 const Buffer<const unsigned char>& salt, size_t length);
+                 const Buffer<const unsigned char>& salt,
+                 size_t length);
 
 bool checkScryptParams(uint64_t N, uint64_t r, uint64_t p, uint64_t maxmem);
 
 bool scryptInto(const Buffer<const char>& pass,
-                const Buffer<const unsigned char>& salt, uint64_t N, uint64_t r,
-                uint64_t p, uint64_t maxmem, size_t length,
+                const Buffer<const unsigned char>& salt,
+                uint64_t N,
+                uint64_t r,
+                uint64_t p,
+                uint64_t maxmem,
+                size_t length,
                 Buffer<unsigned char>* out);
 
 DataPointer scrypt(const Buffer<const char>& pass,
-                   const Buffer<const unsigned char>& salt, uint64_t N,
-                   uint64_t r, uint64_t p, uint64_t maxmem, size_t length);
+                   const Buffer<const unsigned char>& salt,
+                   uint64_t N,
+                   uint64_t r,
+                   uint64_t p,
+                   uint64_t maxmem,
+                   size_t length);
 
-bool pbkdf2Into(const EVP_MD* md, const Buffer<const char>& pass,
-                const Buffer<const unsigned char>& salt, uint32_t iterations,
-                size_t length, Buffer<unsigned char>* out);
+bool pbkdf2Into(const EVP_MD* md,
+                const Buffer<const char>& pass,
+                const Buffer<const unsigned char>& salt,
+                uint32_t iterations,
+                size_t length,
+                Buffer<unsigned char>* out);
 
-DataPointer pbkdf2(const EVP_MD* md, const Buffer<const char>& pass,
-                   const Buffer<const unsigned char>& salt, uint32_t iterations,
+DataPointer pbkdf2(const EVP_MD* md,
+                   const Buffer<const char>& pass,
+                   const Buffer<const unsigned char>& salt,
+                   uint32_t iterations,
                    size_t length);
 
 // ============================================================================

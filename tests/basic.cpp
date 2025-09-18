@@ -2,4 +2,6 @@
 
 #include <gtest/gtest.h>
 
-TEST(basic, test_it) { SUCCEED(); }
+TEST(basic, test_it) {
+  SUCCEED();
+}
